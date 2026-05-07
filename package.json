@@ -4,7 +4,9 @@
   "description": "A simple to-do list application built with JavaScript, HTML, and CSS. It allows users to add, edit, and delete tasks, as well as mark them as completed. The application is designed to help users stay organized and manage their daily tasks effectively.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "webpack",
+    "start": "webpack serve"
   },
   "repository": {
     "type": "git",
@@ -19,6 +21,8 @@
   },
   "homepage": "https://github.com/Anaid-Ariwany/To-Do-List#readme",
   "devDependencies": {
+    "css-loader": "^7.1.4",
+    "style-loader": "^4.0.0",
     "webpack": "^5.106.2",
     "webpack-cli": "^7.0.2",
     "webpack-dev-server": "^5.2.3"
