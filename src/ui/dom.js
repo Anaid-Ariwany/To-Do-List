@@ -24,6 +24,29 @@ function formatDueDate(isoDate) {
   return isoDate;
 }
 
+function setModalError(backdrop, message) {
+  const box = backdrop.querySelector('[data-modal-error]');
+  if (!box) return;
+  box.textContent = message || '';
+  box.style.display = message ? 'block' : 'none';
+}
+
+function openBackdrop(backdrop, focusSelector) {
+  setModalError(backdrop, '');
+  backdrop.classList.add('open');
+  if (focusSelector) {
+    const focusEl = backdrop.querySelector(focusSelector);
+    if (focusEl) focusEl.focus();
+  }
+}
+
+function closeBackdrop(backdrop) {
+  backdrop.classList.remove('open');
+  const form = backdrop.querySelector('form');
+  if (form) form.reset();
+  setModalError(backdrop, '');
+}
+
 function openTodoModal(modal, values) {
   modal.dataset.mode = values && values.id ? 'edit' : 'create';
   modal.dataset.todoId = values && values.id ? values.id : '';
@@ -35,14 +58,7 @@ function openTodoModal(modal, values) {
   modal.querySelector('[name="notes"]').value = values?.notes || '';
   modal.querySelector('[data-modal-title]').textContent = values && values.id ? 'Edit todo' : 'New todo';
 
-  modal.closest('.modal-backdrop').classList.add('open');
-  modal.querySelector('[name="title"]').focus();
-}
-
-function closeModal(backdrop) {
-  backdrop.classList.remove('open');
-  const form = backdrop.querySelector('form');
-  if (form) form.reset();
+  openBackdrop(modal.closest('.modal-backdrop'), '[name="title"]');
 }
 
 function buildModal() {
@@ -61,6 +77,7 @@ function buildModal() {
       el(
         'form',
         { autocomplete: 'off' },
+        el('div', { class: 'modal-error', 'data-modal-error': '', style: 'display:none' }, ''),
         el(
           'div',
           { class: 'grid2' },
@@ -113,6 +130,66 @@ function buildModal() {
   return backdrop;
 }
 
+function buildProjectModal() {
+  const backdrop = el(
+    'div',
+    { class: 'modal-backdrop', role: 'dialog', 'aria-modal': 'true' },
+    el(
+      'div',
+      { class: 'modal card', dataset: { mode: 'create', projectId: '' } },
+      el(
+        'div',
+        { class: 'modal-header' },
+        el('h3', { 'data-modal-title': '' }, 'New project'),
+        el('button', { class: 'btn small', type: 'button', 'data-close': '' }, 'Close')
+      ),
+      el(
+        'form',
+        { autocomplete: 'off' },
+        el('div', { class: 'modal-error', 'data-modal-error': '', style: 'display:none' }, ''),
+        el(
+          'div',
+          { class: 'field' },
+          el('label', {}, 'Project name'),
+          el('input', { name: 'name', required: true, placeholder: 'e.g. Work' })
+        ),
+        el(
+          'div',
+          { class: 'modal-actions' },
+          el('button', { class: 'btn', type: 'button', 'data-cancel': '' }, 'Cancel'),
+          el('button', { class: 'btn primary', type: 'submit' }, 'Save')
+        )
+      )
+    )
+  );
+  return backdrop;
+}
+
+function buildConfirmModal() {
+  const backdrop = el(
+    'div',
+    { class: 'modal-backdrop', role: 'dialog', 'aria-modal': 'true' },
+    el(
+      'div',
+      { class: 'modal card', dataset: { kind: 'confirm' } },
+      el(
+        'div',
+        { class: 'modal-header' },
+        el('h3', { 'data-modal-title': '' }, 'Confirm'),
+        el('button', { class: 'btn small', type: 'button', 'data-close': '' }, 'Close')
+      ),
+      el('div', { class: 'subtle', 'data-modal-message': '', style: 'padding: 0 2px 6px' }, ''),
+      el(
+        'div',
+        { class: 'modal-actions' },
+        el('button', { class: 'btn', type: 'button', 'data-cancel': '' }, 'Cancel'),
+        el('button', { class: 'btn danger', type: 'button', 'data-confirm': '' }, 'Confirm')
+      )
+    )
+  );
+  return backdrop;
+}
+
 function renderProjects(container, state, actions) {
   container.textContent = '';
   for (const p of state.projects) {
@@ -140,25 +217,11 @@ function renderProjects(container, state, actions) {
       actions.selectProject(p.id);
     });
 
-    item.querySelector('[data-action="rename"]').addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const name = prompt('Rename project:', p.name);
-      if (name != null && String(name).trim()) actions.renameProject(p.id, name);
-    });
-
-    item.querySelector('[data-action="delete"]').addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const ok = confirm(`Delete project "${p.name}"? This removes all its todos.`);
-      if (ok) actions.deleteProject(p.id);
-    });
-
     container.appendChild(item);
   }
 }
 
-function renderTodos(container, state, actions, modalBackdrop) {
+function renderTodos(container, state, actions, modalBackdrop, confirmModalApi) {
   const project = state.selectedProject;
   container.textContent = '';
 
@@ -220,8 +283,13 @@ function renderTodos(container, state, actions, modalBackdrop) {
     row.querySelector('[data-action="expand"]').addEventListener('click', () => actions.toggleExpanded(t.id));
     row.querySelector('[data-action="edit"]').addEventListener('click', () => openTodoModal(modalBackdrop.querySelector('.modal'), t));
     row.querySelector('[data-action="delete"]').addEventListener('click', () => {
-      const ok = confirm(`Delete todo "${titleText}"?`);
-      if (ok) actions.deleteTodo(project.id, t.id);
+      confirmModalApi.open({
+        title: 'Delete task?',
+        message: `Delete "${titleText}"? This can't be undone.`,
+        confirmText: 'Delete',
+        danger: true,
+        onConfirm: () => actions.deleteTodo(project.id, t.id),
+      });
     });
 
     container.appendChild(row);
@@ -235,8 +303,12 @@ function mountApp(root, store) {
   const projectsList = el('div', { class: 'projects' });
   const todoList = el('div', { class: 'todo-list card' });
 
-  const modalBackdrop = buildModal();
+  const modalBackdrop = buildModal(); // todo modal
+  const projectModalBackdrop = buildProjectModal();
+  const confirmModalBackdrop = buildConfirmModal();
   document.body.appendChild(modalBackdrop);
+  document.body.appendChild(projectModalBackdrop);
+  document.body.appendChild(confirmModalBackdrop);
 
   const sidebar = el(
     'aside',
@@ -264,12 +336,12 @@ function mountApp(root, store) {
   root.innerHTML = '';
   root.appendChild(el('div', { class: 'app' }, sidebar, main));
 
-  // Modal wiring
+  // Todo modal wiring
   modalBackdrop.addEventListener('click', (e) => {
-    if (e.target === modalBackdrop) closeModal(modalBackdrop);
+    if (e.target === modalBackdrop) closeBackdrop(modalBackdrop);
   });
-  modalBackdrop.querySelector('[data-close]').addEventListener('click', () => closeModal(modalBackdrop));
-  modalBackdrop.querySelector('[data-cancel]').addEventListener('click', () => closeModal(modalBackdrop));
+  modalBackdrop.querySelector('[data-close]').addEventListener('click', () => closeBackdrop(modalBackdrop));
+  modalBackdrop.querySelector('[data-cancel]').addEventListener('click', () => closeBackdrop(modalBackdrop));
 
   modalBackdrop.querySelector('form').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -288,7 +360,7 @@ function mountApp(root, store) {
     };
 
     if (!String(values.title || '').trim()) {
-      alert('Please provide a title.');
+      setModalError(modalBackdrop, 'Please provide a title.');
       return;
     }
 
@@ -298,13 +370,68 @@ function mountApp(root, store) {
       actions.addTodo(project.id, values);
     }
 
-    closeModal(modalBackdrop);
+    closeBackdrop(modalBackdrop);
+  });
+
+  // Project modal API + wiring
+  function openProjectModal({ title, initialName, onSubmit }) {
+    projectModalBackdrop.querySelector('[data-modal-title]').textContent = title || 'Project';
+    projectModalBackdrop.querySelector('[name="name"]').value = initialName || '';
+    projectModalBackdrop._onSubmit = onSubmit;
+    openBackdrop(projectModalBackdrop, '[name="name"]');
+  }
+
+  projectModalBackdrop.addEventListener('click', (e) => {
+    if (e.target === projectModalBackdrop) closeBackdrop(projectModalBackdrop);
+  });
+  projectModalBackdrop.querySelector('[data-close]').addEventListener('click', () => closeBackdrop(projectModalBackdrop));
+  projectModalBackdrop.querySelector('[data-cancel]').addEventListener('click', () => closeBackdrop(projectModalBackdrop));
+  projectModalBackdrop.querySelector('form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const name = String(fd.get('name') || '').trim();
+    if (!name) {
+      setModalError(projectModalBackdrop, 'Please provide a project name.');
+      return;
+    }
+    const fn = projectModalBackdrop._onSubmit;
+    if (typeof fn === 'function') fn(name);
+    closeBackdrop(projectModalBackdrop);
+  });
+
+  // Confirm modal API + wiring
+  let confirmHandler = null;
+  const confirmModalApi = {
+    open({ title, message, confirmText, danger, onConfirm }) {
+      confirmHandler = typeof onConfirm === 'function' ? onConfirm : null;
+      confirmModalBackdrop.querySelector('[data-modal-title]').textContent = title || 'Confirm';
+      confirmModalBackdrop.querySelector('[data-modal-message]').textContent = message || '';
+      const btn = confirmModalBackdrop.querySelector('[data-confirm]');
+      btn.textContent = confirmText || 'Confirm';
+      btn.classList.toggle('danger', Boolean(danger));
+      openBackdrop(confirmModalBackdrop, '[data-confirm]');
+    },
+  };
+
+  confirmModalBackdrop.addEventListener('click', (e) => {
+    if (e.target === confirmModalBackdrop) closeBackdrop(confirmModalBackdrop);
+  });
+  confirmModalBackdrop.querySelector('[data-close]').addEventListener('click', () => closeBackdrop(confirmModalBackdrop));
+  confirmModalBackdrop.querySelector('[data-cancel]').addEventListener('click', () => closeBackdrop(confirmModalBackdrop));
+  confirmModalBackdrop.querySelector('[data-confirm]').addEventListener('click', () => {
+    const fn = confirmHandler;
+    confirmHandler = null;
+    closeBackdrop(confirmModalBackdrop);
+    if (fn) fn();
   });
 
   // Header actions
   root.querySelector('[data-new-project]').addEventListener('click', () => {
-    const name = prompt('Project name:');
-    if (name != null && String(name).trim()) actions.addProject(name);
+    openProjectModal({
+      title: 'New project',
+      initialName: '',
+      onSubmit: (name) => actions.addProject(name),
+    });
   });
   root.querySelector('[data-new-todo]').addEventListener('click', () => {
     const state = store.getState();
@@ -318,7 +445,45 @@ function mountApp(root, store) {
     renderProjects(projectsList, state, actions);
     headerTitle.textContent = state.selectedProject?.name || 'Todos';
     headerSubtitle.textContent = `${state.selectedProject?.todos.length || 0} item(s)`;
-    renderTodos(todoList, state, actions, modalBackdrop);
+    renderTodos(todoList, state, actions, modalBackdrop, confirmModalApi);
+
+    // Wire project buttons (render-time, but guarded against duplicates)
+    for (const row of projectsList.querySelectorAll('.project')) {
+      const pid = row.dataset.pid;
+      const project = state.projects.find((p) => p.id === pid);
+      if (!project) continue;
+
+      const renameBtn = row.querySelector('[data-action="rename"]');
+      const deleteBtn = row.querySelector('[data-action="delete"]');
+
+      if (renameBtn && !renameBtn._wired) {
+        renameBtn._wired = true;
+        renameBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          openProjectModal({
+            title: 'Rename project',
+            initialName: project.name,
+            onSubmit: (name) => actions.renameProject(pid, name),
+          });
+        });
+      }
+
+      if (deleteBtn && !deleteBtn._wired) {
+        deleteBtn._wired = true;
+        deleteBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          confirmModalApi.open({
+            title: 'Delete project?',
+            message: `Delete "${project.name}"? This removes all its todos.`,
+            confirmText: 'Delete',
+            danger: true,
+            onConfirm: () => actions.deleteProject(pid),
+          });
+        });
+      }
+    }
   }
 
   store.subscribe(render);
